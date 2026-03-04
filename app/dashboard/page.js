@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 const LISTING_CATEGORIES = ['OTHER', 'SERVICES', 'DIGITAL', 'PHYSICAL'];
 
@@ -45,48 +46,45 @@ export default function StorePage() {
 
   useEffect(() => {
     setSession(storage.getSession());
-    setUsers(storage.getUsers());
-    const raw = storage.getStorePosts();
-    setPosts(raw.map(migratePost));
+    data.getUsers().then((u) => setUsers(u));
+    data.getStorePosts().then((raw) => setPosts(raw.map(migratePost)));
   }, []);
 
   const detailListing = detailListingId ? posts.find((p) => p.id === detailListingId) : null;
   const isAdmin = session && users.find((u) => u.username === session.username)?.isAdmin;
 
-  function openListingDetail(p) {
+  async function openListingDetail(p) {
     const newViews = (p.views || 0) + 1;
-    const updated = posts.map((post) => (post.id === p.id ? { ...post, views: newViews } : post));
-    storage.setStorePosts(updated);
-    setPosts(updated);
     setDetailListingId(p.id);
     setDetailMessage('');
+    try {
+      await data.updateStorePost(p.id, { views: newViews });
+      setPosts((prev) => prev.map((post) => (post.id === p.id ? { ...post, views: newViews } : post)));
+    } catch (_) {
+      setPosts((prev) => prev.map((post) => (post.id === p.id ? { ...post, views: newViews } : post)));
+    }
   }
 
-  function handleDetailSendMessage(e) {
+  async function handleDetailSendMessage(e) {
     e.preventDefault();
     if (!session || !detailMessage.trim() || !detailListing) return;
     const key = threadKey(session.username, detailListing.author);
-    const dms = storage.getDMs();
-    const messages = (dms[key] || []).concat({
-      id: id(),
-      from: session.username,
-      to: detailListing.author,
-      text: detailMessage.trim(),
-      date: new Date().toISOString(),
-    });
-    storage.setDMs({ ...dms, [key]: messages });
+    try {
+      await data.sendDm(key, session.username, detailListing.author, detailMessage.trim());
+    } catch (_) {}
     setDetailMessage('');
     setDetailListingId(null);
     router.push('/dashboard/dms?user=' + encodeURIComponent(detailListing.author));
   }
 
-  function handleDetailDelete() {
+  async function handleDetailDelete() {
     if (!detailListing || !isAdmin) return;
     if (!confirm('Delete this listing? This cannot be undone.')) return;
-    const next = posts.filter((p) => p.id !== detailListing.id);
-    storage.setStorePosts(next);
-    setPosts(next);
-    setDetailListingId(null);
+    try {
+      await data.deleteStorePost(detailListing.id);
+      setPosts((prev) => prev.filter((p) => p.id !== detailListing.id));
+      setDetailListingId(null);
+    } catch (_) {}
   }
 
   function copyListingId() {
@@ -116,7 +114,7 @@ export default function StorePage() {
     reader.readAsDataURL(file);
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!session) return;
     const newPost = {
@@ -130,17 +128,20 @@ export default function StorePage() {
       image: image || null,
       views: 0,
     };
-    const next = [newPost, ...posts];
-    storage.setStorePosts(next);
-    setPosts(next);
-    setTitle('');
-    setDescription('');
-    setPrice('');
-    setImage(null);
-    setCategory('OTHER');
-    setSuccess('Listing created.');
-    setModalOpen(false);
-    setTimeout(() => setSuccess(''), 3000);
+    try {
+      const created = await data.addStorePost(newPost);
+      setPosts((prev) => [created, ...prev]);
+      setTitle('');
+      setDescription('');
+      setPrice('');
+      setImage(null);
+      setCategory('OTHER');
+      setSuccess('Listing created.');
+      setModalOpen(false);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setSuccess(err?.message || 'Failed to create listing.');
+    }
   }
 
   function dmHref(username) {

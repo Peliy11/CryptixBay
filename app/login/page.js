@@ -5,30 +5,39 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    const users = storage.getUsers();
-    const user = users.find((u) => u.username === username && u.password === password);
-    if (!user) {
-      setError('Invalid username or password.');
-      return;
-    }
-    const banned = storage.getBanned();
-    if (banned.includes(user.username)) {
+    setLoading(true);
+    try {
+      const users = await data.getUsers();
+      const user = users.find((u) => u.username === username && u.password === password);
+      if (!user) {
+        setError('Invalid username or password.');
+        return;
+      }
+      const banned = await data.getBanned();
+      if (banned.includes(user.username)) {
+        storage.setSession({ username: user.username });
+        router.push('/banned');
+        return;
+      }
       storage.setSession({ username: user.username });
-      router.push('/banned');
-      return;
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err?.message || 'Something went wrong.');
+    } finally {
+      setLoading(false);
     }
-    storage.setSession({ username: user.username });
-    router.push('/dashboard');
   }
 
   return (
@@ -58,7 +67,7 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
           {error && <p className="error-msg">{error}</p>}
-          <button type="submit">Log in</button>
+          <button type="submit" disabled={loading}>{loading ? 'Logging in…' : 'Log in'}</button>
         </form>
         <p className="auth-footer">
           No account? <Link href="/signup">Sign up</Link>

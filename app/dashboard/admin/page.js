@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -18,16 +19,17 @@ export default function AdminPage() {
   useEffect(() => {
     const s = storage.getSession();
     setSession(s);
-    const u = storage.getUsers();
-    setUsers(u);
-    const me = u.find((x) => x.username === s?.username);
-    if (!me?.isAdmin) {
-      router.replace('/dashboard');
-      return;
-    }
-    setPosts(storage.getStorePosts());
-    setBanned(storage.getBanned());
-    setBalances(storage.getCryptoBalances());
+    Promise.all([data.getUsers(), data.getStorePosts(), data.getBanned(), data.getCryptoBalances()]).then(([u, p, b, bal]) => {
+      setUsers(u);
+      const me = u.find((x) => x.username === s?.username);
+      if (!me?.isAdmin) {
+        router.replace('/dashboard');
+        return;
+      }
+      setPosts(p);
+      setBanned(b);
+      setBalances(bal);
+    });
   }, [router]);
 
   function showMsg(type, text) {
@@ -35,7 +37,7 @@ export default function AdminPage() {
     setTimeout(() => setMessage({ type: '', text: '' }), 3000);
   }
 
-  function handleGiveCrypto(e) {
+  async function handleGiveCrypto(e) {
     e.preventDefault();
     if (!cryptoUser.trim() || !cryptoAmount.trim()) return;
     const amount = parseFloat(cryptoAmount);
@@ -43,50 +45,64 @@ export default function AdminPage() {
       showMsg('error', 'Enter a valid amount.');
       return;
     }
-    const next = { ...balances };
-    next[cryptoUser.trim()] = (next[cryptoUser.trim()] || 0) + amount;
-    storage.setCryptoBalances(next);
-    setBalances(next);
-    setCryptoUser('');
-    setCryptoAmount('');
-    showMsg('success', `Added ${amount} CB to @${cryptoUser.trim()}`);
+    try {
+      await data.addCryptoToUser(cryptoUser.trim(), amount);
+      const bal = await data.getCryptoBalances();
+      setBalances(bal);
+      setCryptoUser('');
+      setCryptoAmount('');
+      showMsg('success', `Added ${amount} CB to @${cryptoUser.trim()}`);
+    } catch (err) {
+      showMsg('error', err?.message || 'Failed.');
+    }
   }
 
-  function handleDeletePost(postId) {
-    const next = posts.filter((p) => p.id !== postId);
-    storage.setStorePosts(next);
-    setPosts(next);
-    showMsg('success', 'Listing deleted.');
+  async function handleDeletePost(postId) {
+    try {
+      await data.deleteStorePost(postId);
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      showMsg('success', 'Listing deleted.');
+    } catch (_) {
+      showMsg('error', 'Failed to delete.');
+    }
   }
 
-  function handleBan(username) {
+  async function handleBan(username) {
     if (username === session?.username) {
       showMsg('error', 'You cannot ban yourself.');
       return;
     }
-    if (banned.includes(username)) return;
-    const next = [...banned, username];
-    storage.setBanned(next);
-    setBanned(next);
-    showMsg('success', `Banned @${username}`);
+    try {
+      await data.banUser(username);
+      setBanned((prev) => [...prev, username]);
+      showMsg('success', `Banned @${username}`);
+    } catch (_) {
+      showMsg('error', 'Failed to ban.');
+    }
   }
 
-  function handleUnban(username) {
-    const next = banned.filter((u) => u !== username);
-    storage.setBanned(next);
-    setBanned(next);
-    showMsg('success', `Unbanned @${username}`);
+  async function handleUnban(username) {
+    try {
+      await data.unbanUser(username);
+      setBanned((prev) => prev.filter((u) => u !== username));
+      showMsg('success', `Unbanned @${username}`);
+    } catch (_) {
+      showMsg('error', 'Failed to unban.');
+    }
   }
 
-  function handleSetAdmin(username, isAdmin) {
+  async function handleSetAdmin(username, isAdmin) {
     if (username === session?.username && !isAdmin) {
       showMsg('error', 'You cannot remove your own admin role.');
       return;
     }
-    const next = users.map((u) => (u.username === username ? { ...u, isAdmin } : u));
-    storage.setUsers(next);
-    setUsers(next);
-    showMsg('success', isAdmin ? `@${username} is now admin.` : `@${username} is no longer admin.`);
+    try {
+      await data.setUserAdmin(username, isAdmin);
+      setUsers((prev) => prev.map((u) => (u.username === username ? { ...u, isAdmin } : u)));
+      showMsg('success', isAdmin ? `@${username} is now admin.` : `@${username} is no longer admin.`);
+    } catch (_) {
+      showMsg('error', 'Failed to update.');
+    }
   }
 
   if (!session) return null;
@@ -99,7 +115,7 @@ export default function AdminPage() {
       <div className="card">
         <h2>Admin Panel</h2>
         <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>
-          Give site crypto, delete listings, ban users, and set admins.
+          Give site crypto, delete listings, ban users, and set admins. Use <strong>Config</strong> for a quick list to manage admins.
         </p>
         {message.text && (
           <p className={message.type === 'error' ? 'error-msg' : 'success-msg'}>{message.text}</p>
@@ -109,7 +125,7 @@ export default function AdminPage() {
       <div className="card admin-section">
         <h2>Give Crypto</h2>
         <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-          Credit CB (CryptixBay) balance to a user. Balances are stored locally.
+          Credit CB (CryptixBay) balance to a user.
         </p>
         <form onSubmit={handleGiveCrypto} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ marginBottom: 0, minWidth: '140px' }}>

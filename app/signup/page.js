@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -12,8 +13,9 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     if (password !== confirm) {
@@ -24,21 +26,27 @@ export default function SignupPage() {
       setError('Password must be at least 4 characters.');
       return;
     }
-    const users = storage.getUsers();
-    if (users.some((u) => u.username === username)) {
-      setError('Username already taken.');
-      return;
+    setLoading(true);
+    try {
+      const users = await data.getUsers();
+      if (users.some((u) => u.username === username)) {
+        setError('Username already taken.');
+        return;
+      }
+      const isFirstUser = users.length === 0;
+      await data.createUser({
+        username,
+        password,
+        isAdmin: isFirstUser,
+        joinDate: new Date().toISOString(),
+      });
+      storage.setSession({ username });
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err?.message || 'Something went wrong.');
+    } finally {
+      setLoading(false);
     }
-    const isFirstUser = users.length === 0;
-    users.push({
-      username,
-      password,
-      isAdmin: isFirstUser,
-      joinDate: new Date().toISOString(),
-    });
-    storage.setUsers(users);
-    storage.setSession({ username });
-    router.push('/dashboard');
   }
 
   return (
@@ -78,7 +86,7 @@ export default function SignupPage() {
             autoComplete="new-password"
           />
           {error && <p className="error-msg">{error}</p>}
-          <button type="submit">Create account</button>
+          <button type="submit" disabled={loading}>{loading ? 'Creating…' : 'Create account'}</button>
         </form>
         <p className="auth-footer">
           Already have an account? <Link href="/login">Log in</Link>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 function threadKey(a, b) {
   return [a, b].sort().join('::');
@@ -20,11 +21,10 @@ export default function ProfilePage() {
   useEffect(() => {
     const s = storage.getSession();
     setSession(s);
-    setUsers(storage.getUsers());
-    setPosts(storage.getStorePosts());
-    setDms(storage.getDMs());
-    const bal = storage.getCryptoBalances();
-    setBalance(s && bal[s.username] ? bal[s.username] : 0);
+    data.getUsers().then(setUsers);
+    data.getStorePosts().then(setPosts);
+    data.getDms().then(setDms);
+    data.getCryptoBalances().then((bal) => setBalance(s && bal[s.username] ? bal[s.username] : 0));
   }, []);
 
   const user = session ? users.find((u) => u.username === session.username) : null;
@@ -41,15 +41,14 @@ export default function ProfilePage() {
     setEditingName(true);
   }
 
-  function handleSaveName() {
+  async function handleSaveName() {
     if (!session || !user) return;
     const name = editName.trim() || session.username;
-    const next = users.map((u) =>
-      u.username === session.username ? { ...u, displayName: name || undefined } : u
-    );
-    storage.setUsers(next);
-    setUsers(next);
-    setEditingName(false);
+    try {
+      await data.updateUser(session.username, { displayName: name || undefined });
+      setUsers((prev) => prev.map((u) => (u.username === session.username ? { ...u, displayName: name || undefined } : u)));
+      setEditingName(false);
+    } catch (_) {}
   }
 
   if (!session) return null;
@@ -58,12 +57,11 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/') || !session || !user) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const next = users.map((u) =>
-        u.username === session.username ? { ...u, avatar: reader.result } : u
-      );
-      storage.setUsers(next);
-      setUsers(next);
+    reader.onload = async () => {
+      try {
+        await data.updateUser(session.username, { avatar: reader.result });
+        setUsers((prev) => prev.map((u) => (u.username === session.username ? { ...u, avatar: reader.result } : u)));
+      } catch (_) {}
     };
     reader.readAsDataURL(file);
   }

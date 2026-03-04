@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 export default function DashboardLayout({ children }) {
   const router = useRouter();
@@ -13,20 +14,23 @@ export default function DashboardLayout({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const session = storage.getSession();
     if (!session) {
       router.replace('/login');
       return;
     }
-    const banned = storage.getBanned();
-    if (banned.includes(session.username)) {
-      router.replace('/banned');
-      return;
-    }
-    const users = storage.getUsers();
-    const current = users.find((u) => u.username === session.username);
-    setUser(session);
-    setIsAdmin(current?.isAdmin === true);
+    Promise.all([data.getBanned(), data.getUsers()]).then(([banned, users]) => {
+      if (cancelled) return;
+      if (banned.includes(session.username)) {
+        router.replace('/banned');
+        return;
+      }
+      const current = users.find((u) => u.username === session.username);
+      setUser(session);
+      setIsAdmin(current?.isAdmin === true);
+    });
+    return () => { cancelled = true; };
   }, [router]);
 
   function handleLogout() {
@@ -47,7 +51,7 @@ export default function DashboardLayout({ children }) {
     { href: '/dashboard/profile', label: 'Profile' },
     { href: '/dashboard/dms', label: 'DMs' },
     { href: '/dashboard/news', label: 'News' },
-    ...(isAdmin ? [{ href: '/dashboard/admin', label: 'Admin' }] : []),
+    ...(isAdmin ? [{ href: '/dashboard/admin', label: 'Admin' }, { href: '/dashboard/config', label: 'Config' }] : []),
     { href: '/dashboard/settings', label: 'Settings' },
   ];
 
@@ -63,7 +67,7 @@ export default function DashboardLayout({ children }) {
             <Link
               key={href}
               href={href}
-              className={pathname === href || (href === '/dashboard/admin' && pathname?.startsWith('/dashboard/admin')) ? 'active' : ''}
+              className={pathname === href || (href === '/dashboard/admin' && pathname?.startsWith('/dashboard/admin')) || (href === '/dashboard/config' && pathname?.startsWith('/dashboard/config')) ? 'active' : ''}
             >
               {label}
             </Link>

@@ -1,14 +1,26 @@
 # CryptixBay
 
-A darkweb-style demo site with store, DMs, news channel, and themes. Data is stored in the browser (localStorage) only.
+A darkweb-style demo site with store, DMs, news channel, and themes. Works **solo** (localStorage) or **with friends** (shared data via Supabase).
 
 ## Features
 
-- **Login / Signup** – Username and password saved in localStorage
-- **Store** – Post marketplace listings (title, description, price)
-- **DMs** – Message other users by username
+- **Login / Signup** – Username and password (localStorage or shared DB)
+- **Store** – Post marketplace listings with thumbnails, categories, detail modal; admins can delete
+- **DMs** – Message other users (shared when using Supabase)
 - **News** – Post and read channel updates
-- **Settings** – Switch between **green** and **purple** themes
+- **Config** (admins only) – Set which users are admins
+- **Admin** – Give crypto, delete listings, ban users, set admins
+- **Settings** – Green and purple themes
+
+## Shared data (you + friends)
+
+To share data so you and friends see the same users, listings, DMs, and news, use Supabase.
+
+**→ See [SUPABASE-SETUP.md](SUPABASE-SETUP.md) for a full step-by-step guide.**
+
+Short version: create a project at [Supabase](https://supabase.com), run `supabase-schema.sql` in the SQL Editor, then set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` (and in Vercel’s Environment Variables), and redeploy.
+
+Without those env vars, the app uses **localStorage only** (solo, no sharing).
 
 ## Run locally
 

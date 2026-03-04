@@ -3,10 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { storage } from '@/lib/storage';
-
-function id() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+import * as data from '@/lib/data';
 
 function threadKey(a, b) {
   return [a, b].sort().join('::');
@@ -24,18 +21,14 @@ export default function DMsPage() {
   useEffect(() => {
     const s = storage.getSession();
     setSession(s);
-    setDms(storage.getDMs());
-    setUsers(storage.getUsers().map((u) => u.username).filter((u) => u !== s?.username));
+    data.getDms().then(setDms);
+    data.getUsers().then((u) => setUsers(u.map((x) => x.username).filter((un) => un !== s?.username)));
   }, []);
 
   useEffect(() => {
     const userParam = searchParams.get('user');
     if (!userParam || !session) return;
-    const key = [session.username, userParam].sort().join('::');
-    const current = storage.getDMs();
-    const next = { ...current, [key]: current[key] || [] };
-    storage.setDMs(next);
-    setDms(next);
+    const key = threadKey(session.username, userParam);
     setActiveThread(key);
     setTargetUser(userParam);
   }, [searchParams, session]);
@@ -49,19 +42,14 @@ export default function DMsPage() {
 
   const currentThread = activeThread ? threads.find((t) => t.key === activeThread) : null;
 
-  function sendMessage(toUser) {
+  async function sendMessage(toUser) {
     if (!session || !message.trim()) return;
     const key = threadKey(session.username, toUser);
-    const messages = (dms[key] || []).concat({
-      id: id(),
-      from: session.username,
-      to: toUser,
-      text: message.trim(),
-      date: new Date().toISOString(),
-    });
-    const next = { ...dms, [key]: messages };
-    storage.setDMs(next);
-    setDms(next);
+    try {
+      await data.sendDm(key, session.username, toUser, message.trim());
+      const updated = await data.getDms();
+      setDms(updated);
+    } catch (_) {}
     setMessage('');
     setActiveThread(key);
   }
@@ -69,11 +57,6 @@ export default function DMsPage() {
   function startOrOpenThread() {
     if (!targetUser.trim()) return;
     const key = threadKey(session.username, targetUser.trim());
-    if (!dms[key]) {
-      const next = { ...dms, [key]: [] };
-      storage.setDMs(next);
-      setDms(next);
-    }
     setActiveThread(key);
     setTargetUser('');
   }
@@ -126,7 +109,7 @@ export default function DMsPage() {
           <div className="dm-thread" style={{ marginBottom: '1rem' }}>
             {currentThread.messages.map((m) => (
               <div
-                key={m.id}
+                key={m.id || m.date + m.text}
                 className={`dm-message ${m.from === session?.username ? 'self' : ''}`}
               >
                 <div className="dm-meta">@{m.from} · {new Date(m.date).toLocaleString()}</div>
