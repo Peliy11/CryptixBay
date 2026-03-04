@@ -71,3 +71,7 @@ create policy "Allow all for dm_messages" on public.dm_messages for all using (t
 create policy "Allow all for news" on public.news for all using (true) with check (true);
 create policy "Allow all for banned" on public.banned for all using (true) with check (true);
 create policy "Allow all for crypto_balances" on public.crypto_balances for all using (true) with check (true);
+
+-- Enable Realtime so DMs and store listings update without refresh (run this after tables exist)
+alter publication supabase_realtime add table public.dm_messages;
+alter publication supabase_realtime add table public.store_posts;

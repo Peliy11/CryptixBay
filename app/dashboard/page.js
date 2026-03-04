@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { storage } from '@/lib/storage';
 import * as data from '@/lib/data';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const LISTING_CATEGORIES = ['OTHER', 'SERVICES', 'DIGITAL', 'PHYSICAL'];
 
@@ -48,6 +49,20 @@ export default function StorePage() {
     setSession(storage.getSession());
     data.getUsers().then((u) => setUsers(u));
     data.getStorePosts().then((raw) => setPosts(raw.map(migratePost)));
+  }, []);
+
+  // Realtime: refetch store when listings are added/updated/deleted so changes show without refresh
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase) return;
+    const channel = supabase
+      .channel('store_posts_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'store_posts' }, () => {
+        data.getStorePosts().then((raw) => setPosts(raw.map(migratePost)));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const detailListing = detailListingId ? posts.find((p) => p.id === detailListingId) : null;

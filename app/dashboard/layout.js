@@ -49,6 +49,7 @@ export default function DashboardLayout({ children }) {
   const nav = [
     { href: '/dashboard', label: 'Store' },
     { href: '/dashboard/profile', label: 'Profile' },
+    { href: '/dashboard/users', label: 'Find people' },
     { href: '/dashboard/dms', label: 'DMs' },
     { href: '/dashboard/news', label: 'News' },
     ...(isAdmin ? [{ href: '/dashboard/admin', label: 'Admin' }, { href: '/dashboard/config', label: 'Config' }] : []),
@@ -67,7 +68,7 @@ export default function DashboardLayout({ children }) {
             <Link
               key={href}
               href={href}
-              className={pathname === href || (href === '/dashboard/admin' && pathname?.startsWith('/dashboard/admin')) || (href === '/dashboard/config' && pathname?.startsWith('/dashboard/config')) ? 'active' : ''}
+              className={pathname === href || (href === '/dashboard/admin' && pathname?.startsWith('/dashboard/admin')) || (href === '/dashboard/config' && pathname?.startsWith('/dashboard/config')) || (href === '/dashboard/users' && pathname?.startsWith('/dashboard/users')) ? 'active' : ''}
             >
               {label}
             </Link>

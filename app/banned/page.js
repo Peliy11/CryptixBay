@@ -1,29 +1,44 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
 import { storage } from '@/lib/storage';
+import * as data from '@/lib/data';
 
 export default function BannedPage() {
   const router = useRouter();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const session = storage.getSession();
-    const banned = storage.getBanned();
     if (!session) {
       router.replace('/login');
       return;
     }
-    if (!banned.includes(session.username)) {
-      router.replace('/dashboard');
-    }
+    data.getBanned().then((banned) => {
+      if (cancelled) return;
+      if (!banned.includes(session.username)) {
+        router.replace('/dashboard');
+        return;
+      }
+      setReady(true);
+    });
+    return () => { cancelled = true; };
   }, [router]);
 
   function handleLogout() {
     storage.clearSession();
     router.replace('/login');
+  }
+
+  if (!ready) {
+    return (
+      <div className="ban-page">
+        <p style={{ color: 'var(--text-muted)' }}>Checking...</p>
+      </div>
+    );
   }
 
   return (

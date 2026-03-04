@@ -4,9 +4,19 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { storage } from '@/lib/storage';
 import * as data from '@/lib/data';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 function threadKey(a, b) {
   return [a, b].sort().join('::');
+}
+
+function formatTime(isoDate) {
+  try {
+    const d = new Date(isoDate);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch {
+    return '';
+  }
 }
 
 export default function DMsPage() {
@@ -17,12 +27,29 @@ export default function DMsPage() {
   const [message, setMessage] = useState('');
   const [activeThread, setActiveThread] = useState(null);
   const [users, setUsers] = useState([]);
+  const [showNewConv, setShowNewConv] = useState(false);
+  const [dmReads, setDmReads] = useState({});
 
   useEffect(() => {
     const s = storage.getSession();
     setSession(s);
+    setDmReads(storage.getDmReads());
     data.getDms().then(setDms);
-    data.getUsers().then((u) => setUsers(u.map((x) => x.username).filter((un) => un !== s?.username)));
+    data.getUsers().then((u) => setUsers(u));
+  }, []);
+
+  // Realtime: refetch DMs when any message is added so sent/received messages show without refresh
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase) return;
+    const channel = supabase
+      .channel('dm_messages_live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages' }, () => {
+        data.getDms().then(setDms);
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
@@ -30,17 +57,43 @@ export default function DMsPage() {
     if (!userParam || !session) return;
     const key = threadKey(session.username, userParam);
     setActiveThread(key);
-    setTargetUser(userParam);
+    setTargetUser('');
   }, [searchParams, session]);
+
+  // Build display name map (username -> displayName || username)
+  const displayNames = users.reduce((acc, u) => {
+    acc[u.username] = (u.displayName && u.displayName.trim()) ? u.displayName.trim() : u.username;
+    return acc;
+  }, {});
 
   const threads = Object.entries(dms).map(([key, messages]) => {
     const [u1, u2] = key.split('::');
     const other = u1 === session?.username ? u2 : u1;
     const last = messages[messages.length - 1];
-    return { key, other, messages, last };
+    const lastRead = dmReads[key] ? new Date(dmReads[key]).getTime() : 0;
+    const unread = messages.filter((m) => m.from !== session?.username && new Date(m.date).getTime() > lastRead).length;
+    return {
+      key,
+      other,
+      messages,
+      last,
+      displayName: displayNames[other] || other,
+      unread,
+      lastTime: last ? formatTime(last.date) : '',
+    };
   });
 
   const currentThread = activeThread ? threads.find((t) => t.key === activeThread) : null;
+  // New conversation: activeThread set but no messages yet — show chat pane with empty thread
+  const otherInActive = activeThread ? activeThread.split('::').find((u) => u !== session?.username) : null;
+  const isNewThread = activeThread && !currentThread && otherInActive;
+
+  // When opening a thread, mark it as read
+  function openThread(key) {
+    setActiveThread(key);
+    storage.setDmRead(key, new Date().toISOString());
+    setDmReads(storage.getDmReads());
+  }
 
   async function sendMessage(toUser) {
     if (!session || !message.trim()) return;
@@ -52,83 +105,134 @@ export default function DMsPage() {
     } catch (_) {}
     setMessage('');
     setActiveThread(key);
+    storage.setDmRead(key, new Date().toISOString());
+    setDmReads(storage.getDmReads());
   }
 
   function startOrOpenThread() {
-    if (!targetUser.trim()) return;
-    const key = threadKey(session.username, targetUser.trim());
+    const username = targetUser.trim();
+    if (!username) return;
+    const key = threadKey(session.username, username);
     setActiveThread(key);
     setTargetUser('');
+    setShowNewConv(false);
+    storage.setDmRead(key, new Date().toISOString());
+    setDmReads(storage.getDmReads());
   }
 
   return (
-    <>
-      <div className="card">
-        <h2>DM Services</h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>
-          Send encrypted-style messages to other users. Start a conversation by username.
-        </p>
-        <div className="form-group" style={{ maxWidth: '320px' }}>
-          <label>Username to message</label>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              value={targetUser}
-              onChange={(e) => setTargetUser(e.target.value)}
-              placeholder="Enter username"
-              onKeyDown={(e) => e.key === 'Enter' && startOrOpenThread()}
-            />
-            <button type="button" className="btn btn-primary" onClick={startOrOpenThread}>Open</button>
-          </div>
-        </div>
-      </div>
+    <div className="dms-page">
+      <header className="dms-header">
+        <h1 className="dms-title">ENCRYPTED MESSAGES</h1>
+        <p className="dms-subtitle">[ end-to-end encryption • no logs ]</p>
+      </header>
 
-      <div className="card">
-        <h2>Conversations</h2>
-        {threads.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No conversations yet.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {threads.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className="btn btn-ghost"
-                style={{ textAlign: 'left', justifyContent: 'flex-start' }}
-                onClick={() => setActiveThread(t.key)}
-              >
-                @{t.other} {t.last && `· ${t.last.text.slice(0, 30)}${t.last.text.length > 30 ? '…' : ''}`}
-              </button>
-            ))}
+      <div className="dms-layout">
+        <aside className="dms-sidebar">
+          <div className="dms-sidebar-header">
+            <span className="dms-sidebar-icon" aria-hidden>✉</span>
+            <h2>CONVERSATIONS</h2>
           </div>
-        )}
-      </div>
-
-      {currentThread && (
-        <div className="card">
-          <h2>Chat with @{currentThread.other}</h2>
-          <div className="dm-thread" style={{ marginBottom: '1rem' }}>
-            {currentThread.messages.map((m) => (
-              <div
-                key={m.id || m.date + m.text}
-                className={`dm-message ${m.from === session?.username ? 'self' : ''}`}
-              >
-                <div className="dm-meta">@{m.from} · {new Date(m.date).toLocaleString()}</div>
-                {m.text}
+          <div className="dms-new-conv">
+            {showNewConv ? (
+              <div className="dms-new-conv-inner">
+                <input
+                  value={targetUser}
+                  onChange={(e) => setTargetUser(e.target.value)}
+                  placeholder="Username"
+                  onKeyDown={(e) => e.key === 'Enter' && startOrOpenThread()}
+                  autoFocus
+                />
+                <div className="dms-new-conv-btns">
+                  <button type="button" className="btn btn-primary" onClick={startOrOpenThread}>Open</button>
+                  <button type="button" className="btn btn-ghost" onClick={() => { setShowNewConv(false); setTargetUser(''); }}>Cancel</button>
+                </div>
               </div>
-            ))}
+            ) : (
+              <button type="button" className="btn btn-ghost dms-new-conv-btn" onClick={() => setShowNewConv(true)}>
+                + New conversation
+              </button>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              style={{ flex: 1, padding: '0.65rem', background: 'var(--input-bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text-primary)' }}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type a message..."
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), sendMessage(currentThread.other))}
-            />
-            <button type="button" className="btn btn-primary" onClick={() => sendMessage(currentThread.other)}>Send</button>
+          <div className="dms-conv-list">
+            {threads.length === 0 ? (
+              <p className="dms-conv-empty">No conversations yet.</p>
+            ) : (
+              threads.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`dms-conv-entry ${activeThread === t.key ? 'active' : ''}`}
+                  onClick={() => openThread(t.key)}
+                >
+                  <span className="dms-conv-avatar" aria-hidden>👤</span>
+                  <div className="dms-conv-body">
+                    <div className="dms-conv-top">
+                      <span className="dms-conv-name">{t.displayName}</span>
+                      <span className="dms-conv-time">{t.lastTime}</span>
+                    </div>
+                    <p className="dms-conv-preview">
+                      {t.last ? t.last.text.slice(0, 40) + (t.last.text.length > 40 ? '…' : '') : 'No messages'}
+                    </p>
+                  </div>
+                  {t.unread > 0 && (
+                    <span className="dms-unread-badge">{t.unread > 99 ? '99+' : t.unread}</span>
+                  )}
+                </button>
+              ))
+            )}
           </div>
-        </div>
-      )}
-    </>
+        </aside>
+
+        <main className="dms-chat-pane">
+          {!currentThread && !isNewThread ? (
+            <div className="dms-empty-state">
+              <span className="dms-empty-icon" aria-hidden>✉</span>
+              <p>Select a conversation</p>
+            </div>
+          ) : (
+            <>
+              <div className="dms-chat-header">
+                <span className="dms-chat-avatar" aria-hidden>👤</span>
+                <span className="dms-chat-name">
+                  {currentThread ? (displayNames[currentThread.other] || currentThread.other) : (displayNames[otherInActive] || otherInActive)}
+                </span>
+                <span className="dms-chat-private">Private — only you and this user can see this thread.</span>
+              </div>
+              <div className="dm-thread dms-thread">
+                {(currentThread ? currentThread.messages : []).map((m) => (
+                  <div
+                    key={m.id || m.date + m.text}
+                    className={`dm-message ${m.from === session?.username ? 'self' : ''}`}
+                  >
+                    <div className="dm-meta">@{m.from} · {new Date(m.date).toLocaleString()}</div>
+                    {m.text}
+                  </div>
+                ))}
+              </div>
+              <div className="dms-chat-input-wrap">
+                <input
+                  className="dms-chat-input"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Type a message..."
+                  onKeyDown={(e) => {
+                    const toUser = currentThread ? currentThread.other : otherInActive;
+                    if (e.key === 'Enter' && toUser) e.preventDefault(), sendMessage(toUser);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => sendMessage(currentThread ? currentThread.other : otherInActive)}
+                >
+                  Send
+                </button>
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+    </div>
   );
 }

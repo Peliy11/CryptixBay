@@ -23,7 +23,11 @@ Follow these steps so CryptixBay can use **shared data** (you and your friends s
 4. **Copy everything** in that file (all the SQL).
 5. **Paste** it into the Supabase SQL Editor.
 6. Click **“Run”** (or press Ctrl+Enter).
-7. You should see a success message and no errors. That creates the tables and permissions.
+7. You should see a success message and no errors. That creates the tables and permissions.  
+   The script also enables **Realtime** for DMs and the store so new messages and listings appear without refreshing the page. If you already ran the script before and don’t have Realtime, run only these two lines in SQL Editor:  
+   `alter publication supabase_realtime add table public.dm_messages;`  
+   `alter publication supabase_realtime add table public.store_posts;`  
+   (If you get “already a member of publication”, you can ignore it.)
 
 ---
 
