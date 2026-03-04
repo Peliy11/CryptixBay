@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { storage } from '@/lib/storage';
 
 function id() {
@@ -12,6 +13,7 @@ function threadKey(a, b) {
 }
 
 export default function DMsPage() {
+  const searchParams = useSearchParams();
   const [session, setSession] = useState(null);
   const [dms, setDms] = useState({});
   const [targetUser, setTargetUser] = useState('');
@@ -25,6 +27,18 @@ export default function DMsPage() {
     setDms(storage.getDMs());
     setUsers(storage.getUsers().map((u) => u.username).filter((u) => u !== s?.username));
   }, []);
+
+  useEffect(() => {
+    const userParam = searchParams.get('user');
+    if (!userParam || !session) return;
+    const key = [session.username, userParam].sort().join('::');
+    const current = storage.getDMs();
+    const next = { ...current, [key]: current[key] || [] };
+    storage.setDMs(next);
+    setDms(next);
+    setActiveThread(key);
+    setTargetUser(userParam);
+  }, [searchParams, session]);
 
   const threads = Object.entries(dms).map(([key, messages]) => {
     const [u1, u2] = key.split('::');

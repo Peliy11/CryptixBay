@@ -54,12 +54,36 @@ export default function ProfilePage() {
 
   if (!session) return null;
 
+  function handlePfpChange(e) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/') || !session || !user) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const next = users.map((u) =>
+        u.username === session.username ? { ...u, avatar: reader.result } : u
+      );
+      storage.setUsers(next);
+      setUsers(next);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  const avatarUrl = user?.avatar || null;
+
   return (
     <>
       <div className="card profile-header-card">
-        <div className="profile-avatar">
-          {(displayName || session.username).charAt(0).toUpperCase()}
-        </div>
+        <label className="profile-avatar-wrap" style={{ cursor: 'pointer', flexShrink: 0 }}>
+          <input type="file" accept="image/*" onChange={handlePfpChange} style={{ display: 'none' }} />
+          <div className="profile-avatar">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+              (displayName || session.username).charAt(0).toUpperCase()
+            )}
+          </div>
+          <span className="profile-avatar-edit" title="Change photo">Edit</span>
+        </label>
         <div className="profile-info">
           <div className="profile-name-row">
             {editingName ? (
@@ -77,7 +101,7 @@ export default function ProfilePage() {
               </>
             ) : (
               <>
-                <h1>Hello {displayName}</h1>
+                <h1>{displayName}</h1>
                 <button type="button" onClick={handleStartEdit} title="Edit name" aria-label="Edit name">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
