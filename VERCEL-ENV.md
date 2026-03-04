@@ -24,3 +24,5 @@ So your **live site** uses the same shared data as local.
    - Click **Redeploy** → confirm.
 
 After the redeploy finishes, your live CryptixBay site will use Supabase and shared data.
+
+**Data persists across redeploys:** Listings, users, DMs, and news are stored in Supabase, not in the deployment. So when you redeploy, nothing is wiped—only the code updates.
